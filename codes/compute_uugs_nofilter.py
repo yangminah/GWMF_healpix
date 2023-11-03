@@ -10,7 +10,7 @@ import healpy as hp
 import intake
 import dask
 from dask.distributed import Client
-from compute_fluxes_hp import get_task_id_dict, c_date2slice, trim_memory, get_nside
+from compute_fluxes_hp import get_task_id_dict, c_date2slice, trim_memory
 
 
 def ud_grade_xr(da, nside_coarse):
@@ -68,7 +68,6 @@ def main(base_dir: str = "/work/bm1233/icon_for_ml/spherical/nextgems3/"):
     tmp_loc = f"{base_dir}tmp/wfull_{date}.zarr"
 
     nside_coarse = 64  # coarse grained res: nside 64: 100 km, nside 128: 50 km
-    nside = get_nside()
     zoom_coarse = 6  # This is closest to 100km. (101.9)
     zoom = 10
     R_s = 287  # specific gas constant
@@ -120,9 +119,8 @@ def main(base_dir: str = "/work/bm1233/icon_for_ml/spherical/nextgems3/"):
     ds = ds.sel(time=date)
     ds_w = ds_w.sel(time=date)
     ds_rho = ds_rho.sel(time=date)
-    nside = get_nside(ds)
     
-    # Interpolate w to full levels, compute the perturbations, save to disk in a temporary location.
+    # Interpolate w to full levels, and save to disk in a temporary location.
     print("Interpolating w to full levels.")
     client.run(trim_memory)
     l_full = np.arange(0, 91)
@@ -137,15 +135,11 @@ def main(base_dir: str = "/work/bm1233/icon_for_ml/spherical/nextgems3/"):
     w_full = w_full.drop_vars("zghalf")
     w_full["wa_phy"].chunk(
         chunks={"cell": 12 * 4**zoom, "time": 1, "level_full": 15}
-    )#.to_zarr(tmp_loc)
-    wbar = ud_grade_xr(w_full["wa_phy"], nside_coarse)
-    wbar = ud_grade_xr(wbar, nside)
-    w_full["wa_phy"] = dask.compute(w_full["wa_phy"] - wbar)[0]
+    ).to_zarr(tmp_loc)
+    w_full = xr.open_zarr(tmp_loc)
     client.run(trim_memory)
-    w_full.to_zarr(tmp_loc)
-    # w_full = w_full.result()
     ds_w.close()
-    print("Done interpolating w, and computing w'.")
+    print("Done interpolating w.")
 
     # Calculate density
     density = (ds_rho.pfull / (R_s * ds_rho.ta)).to_dataset(name="rho")
@@ -159,19 +153,29 @@ def main(base_dir: str = "/work/bm1233/icon_for_ml/spherical/nextgems3/"):
     }
 
     client.run(trim_memory)
-    
-    # Get perts multiply, and coarsen.
-    for var, newvar in zip(["u", "v"], ["MFx","MFy"]):
+
+    # Compute Products.
+    da["uw"] = da["u"] * da["w"]
+    da["vw"] = da["v"] * da["w"]
+
+
+    # Coarsen
+    da_coarse = {}
+    for var in ["u", "v", "w", "uw", "vw"]:
         tmp = ud_grade_xr(da[var], nside_coarse)
-        tmp = ud_grade_xr(tmp, nside)
-        tmp = tmp * da["w"]
-        tmp = dask.compute(ud_grade_xr(tmp, nside_coarse))[0]
+        tmp = dask.compute(tmp)[0]
+        tmp = tmp.rename({"out_cell": "cell"})
+        da_coarse[var] = tmp
+
+    # Subtract and multiply by density, and save.
+    for var, newvar in zip(["u","v"], ["x","y"]):
+        tmp = da_coarse[f"{var}w"] - ( da_coarse[var] * da_coarse["w"])
         tmp = dask.compute(tmp * da["rho"])[0]
         tmp = tmp.rename({"rho": newvar})
         save_coarse(newvar, tmp, coarse_res, date_slice)
         print(f"Saved {newvar}.")
         del tmp
-        client.run(trim_memory)      
+        client.run(trim_memory)
 
     # Now, we can delete the temporary interpolated w file from disk.
     rmtree(tmp_loc)
