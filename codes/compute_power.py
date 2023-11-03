@@ -21,7 +21,7 @@ def wavenumber2flat(m, l, lmax):
         n += l - m
         return n
     n = np.zeros(len(m), dtype=int)
-    for ii,mm in enumerate(m):
+    for ii, mm in enumerate(m):
         n[ii] = wavenumber2flat(mm, l[ii], lmax)
     return n
 

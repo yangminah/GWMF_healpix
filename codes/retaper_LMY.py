@@ -7,15 +7,16 @@ import healpy as hp
 import intake
 from dask.distributed import Client
 from compute_fluxes_hp import (
-        compute_taper_coeffs,
-        c_date2slice,
-        trim_memory,
-        total_mn,
-        alm2map_xr,
-        save_coarse,
-        flat2wavenumber
-        )
+    compute_taper_coeffs,
+    c_date2slice,
+    trim_memory,
+    total_mn,
+    alm2map_xr,
+    save_coarse,
+    flat2wavenumber,
+)
 from compute_power import wavenumber2flat
+
 
 def get_task_id_dict():
     """
@@ -31,6 +32,7 @@ def get_task_id_dict():
             date = f"{year}-{mon}"
             task_id_dict[count] = [date, year, mon]
     return task_id_dict
+
 
 def main():
     """

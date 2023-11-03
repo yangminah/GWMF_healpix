@@ -7,15 +7,16 @@ import healpy as hp
 import intake
 from dask.distributed import Client
 from compute_fluxes_hp import (
-        compute_taper_coeffs,
-        c_date2slice,
-        trim_memory,
-        total_mn,
-        alm2map_xr,
-        save_coarse,
-        flat2wavenumber
-        )
+    compute_taper_coeffs,
+    c_date2slice,
+    trim_memory,
+    total_mn,
+    alm2map_xr,
+    save_coarse,
+    flat2wavenumber,
+)
 from compute_power import wavenumber2flat
+
 
 def get_task_id_dict():
     """
@@ -31,6 +32,7 @@ def get_task_id_dict():
             date = f"{year}-{mon}"
             task_id_dict[count] = [date, year, mon]
     return task_id_dict
+
 
 def main():
     """
@@ -73,7 +75,7 @@ def main():
     taper_coeffs = compute_taper_coeffs(l_max)
     nsp = taper_coeffs.shape[0]
 
-    for task_id in range(34,35):  ###(1,35) TEMP NEED TO RUN 34
+    for task_id in range(34, 35):  ###(1,35) TEMP NEED TO RUN 34
         # task_id = int(os.getenv('SLURM_ARRAY_TASK_ID'))
         task_id_dict = get_task_id_dict()
         date, year, mon = task_id_dict[task_id]

@@ -112,8 +112,8 @@ def flat2wavenumber(n, lmax):
     Details: let T stand for lmax.
 
     l=T || [0,T]|T+1+(T-1) [1,T]|(T+1)+(T)+(T-2) [2,T]| . . . |(T+2)+(T)+(T-1)+...+1 [T,T]
-        ||      |               | 
-        ||      |               | 
+        ||      |               |
+        ||      |               |
         ||      |               |
         ||      |T+1+(0)   [1,1]|(T+1)+(T)+(0)   [2,2]|
     l=0 || [0,0]|
@@ -131,7 +131,7 @@ def flat2wavenumber(n, lmax):
             else:
                 return j, j + cond + (lmax - (j - 1))
     m, l = np.zeros(len(n), dtype=int), np.zeros(len(n), dtype=int)
-    for ii,nn in enumerate(n):
+    for ii, nn in enumerate(n):
         m[ii], l[ii] = flat2wavenumber(nn, lmax)
     return m, l
 
@@ -146,7 +146,7 @@ def compute_taper_coeffs(lmax, half_width=15):
     # We use a cubic spline to ensure 0 derivs at the beginning and end of the taper.
     kstar = lmax - half_width + 1
     width = 2 * half_width
-    taper_kernel = np.zeros(lmax+1)
+    taper_kernel = np.zeros(lmax + 1)
     for j in range(width):
         taper_kernel[kstar - half_width + j] = (
             2 * (j / width) ** 3 - 3 * (j / width) ** 2 + 1
@@ -159,11 +159,13 @@ def compute_taper_coeffs(lmax, half_width=15):
     taper_applied = taper_kernel[l]
     return taper_applied
 
-def save_coarse(v, da_coarse, coarse_res, l_max, date_slice):
+
+def save_coarse(v, da_coarse, coarse_res, l_max, date_slice, locstr=None):
     """
     Save coarsened variables to preallocated space on disk.
     """
-    locstr="/work/bm1233/icon_for_ml/spherical/nextgems3/"
+    if locstr == None:
+        locstr = "/work/bm1233/icon_for_ml/spherical/nextgems3/"
     filename_coarse = f"{locstr}res{coarse_res}km_{v}_trunc{l_max}.zarr"
     da_coarse = (
         da_coarse.to_dataset(name=v)
@@ -212,13 +214,13 @@ def c_date2slice(ds, year, mon, day=False, inds=False):
         elif mon in [1, 3, 5, 7, 8, 10, 12]:
             day = 31
         if year == 2020 and mon == 1:
-            start_slice = np.where(
-                ds.get_index("time") == f"{year}-{mon}-20 03:00:00"
-            )[0][0]
+            start_slice = np.where(ds.get_index("time") == f"{year}-{mon}-20 03:00:00")[
+                0
+            ][0]
         else:
-            start_slice = np.where(
-                ds.get_index("time") == f"{year}-{mon}-01 00:00:00"
-            )[0][0]
+            start_slice = np.where(ds.get_index("time") == f"{year}-{mon}-01 00:00:00")[
+                0
+            ][0]
     else:
         if year == 2020 and mon == 1 and day == 20:
             start_slice = np.where(
@@ -229,8 +231,7 @@ def c_date2slice(ds, year, mon, day=False, inds=False):
                 ds.get_index("time") == f"{year}-{mon}-{day} 00:00:00"
             )[0][0]
     end_slice = (
-        np.where(ds.get_index("time") == f"{year}-{mon}-{day} 21:00:00")[0][0]
-        + 1
+        np.where(ds.get_index("time") == f"{year}-{mon}-{day} 21:00:00")[0][0] + 1
     )
     if inds:
         return start_slice, end_slice
@@ -266,7 +267,7 @@ def get_task_id_dict():
 
 def main():
     """
-    Start dask client, load in the data and compute the fluxes. 
+    Start dask client, load in the data and compute the fluxes.
     While computing, save spherical harmonics coefficients.
     """
     client = Client(processes=False, n_workers=4, threads_per_worker=4)
@@ -348,7 +349,7 @@ def main():
     # Taper and save.
     taper_dict = {}
     client.run(trim_memory)
-    for v,vv in da_ring_dict.items():
+    for v, vv in da_ring_dict.items():
         print(f"COMPUTING {v}!")
         da_scattered = client.scatter(vv)
         sphharm = client.submit(map2alm_xr, da_scattered, "ring_cell", l_max)

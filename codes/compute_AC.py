@@ -7,9 +7,11 @@ from dask.distributed import Client
 import numpy as np
 import xarray as xr
 import healpy as hp
-#from compute_timeavg import c_dates2slice
-#from compute_fluxes_hp import *
+
+# from compute_timeavg import c_dates2slice
+# from compute_fluxes_hp import *
 sys.path.append("../")
+
 
 def main():
     """
@@ -93,7 +95,7 @@ def main():
         year = year + 1 if date_list[tt % 365] == "01-01" else year
         new_date = f"{year}-{date_list[tt%365]}"
         # print(new_date,end=', ')
-        for ll,lat in enumerate(interesting_lats):
+        for ll, lat in enumerate(interesting_lats):
             la = new_lat[lat]
             # print(la,end=', ')
             u_latavg[tt % 365, ll, :] += (
