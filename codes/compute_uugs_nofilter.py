@@ -119,7 +119,7 @@ def main(base_dir: str = "/work/bm1233/icon_for_ml/spherical/nextgems3/"):
     ds = ds.sel(time=date)
     ds_w = ds_w.sel(time=date)
     ds_rho = ds_rho.sel(time=date)
-    
+
     # Interpolate w to full levels, and save to disk in a temporary location.
     print("Interpolating w to full levels.")
     client.run(trim_memory)
@@ -158,18 +158,20 @@ def main(base_dir: str = "/work/bm1233/icon_for_ml/spherical/nextgems3/"):
     da["uw"] = da["u"] * da["w"]
     da["vw"] = da["v"] * da["w"]
 
-
     # Coarsen
     da_coarse = {}
     for var in ["u", "v", "w", "uw", "vw"]:
+        print(f"Coarsening {var}.")
         tmp = ud_grade_xr(da[var], nside_coarse)
         tmp = dask.compute(tmp)[0]
         tmp = tmp.rename({"out_cell": "cell"})
         da_coarse[var] = tmp
+        client.run(trim_memory)
 
     # Subtract and multiply by density, and save.
-    for var, newvar in zip(["u","v"], ["x","y"]):
-        tmp = da_coarse[f"{var}w"] - ( da_coarse[var] * da_coarse["w"])
+    for var, newvar in zip(["u", "v"], ["MFx", "MFy"]):
+        print(f"Computing and saving {newvar}!")
+        tmp = da_coarse[f"{var}w"] - (da_coarse[var] * da_coarse["w"])
         tmp = dask.compute(tmp * da["rho"])[0]
         tmp = tmp.rename({"rho": newvar})
         save_coarse(newvar, tmp, coarse_res, date_slice)
@@ -179,6 +181,7 @@ def main(base_dir: str = "/work/bm1233/icon_for_ml/spherical/nextgems3/"):
 
     # Now, we can delete the temporary interpolated w file from disk.
     rmtree(tmp_loc)
+
 
 if __name__ == "__main__":
     main()
