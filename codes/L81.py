@@ -21,22 +21,95 @@ class Lindzen1981:
         k: float = 2 * np.pi / 100e3
         ) -> None:
         """Initialize an L81 instance."""
-        
-        dir_dict={"N": (0,1),
-                  "NE": (1/np.sqrt(2),1/np.sqrt(2)),
-                  "E": (1,0),
-                  "SE":  (1/np.sqrt(2),-1/np.sqrt(2))
-                 }
+        if type(direction)==str:
+            dir_dict={"N": (0,1),
+                      "NE": (1/np.sqrt(2),1/np.sqrt(2)),
+                      "E": (1,0),
+                      "SE":  (1/np.sqrt(2),-1/np.sqrt(2))
+                     }
+            self.direction = dir_dict[direction]
+        elif type(direction)==float:
+            self.direction=(np.cos(direction), np.sin(direction))
         self.B_m = B_m
         self.c_w = c_w
         self.c_0 = c_0
         self.c_max = c_max
         self.dc = dc
-        self.direction = dir_dict[direction]
+        
         self.h_wavenum = k
         self.phase_speeds, self.mom_flux = self._init_wave_packet((B_m, c_w, c_0, c_max, dc))
 
     def _vectorized_predict(
+        self, data:n3
+    ) -> np.ndarray:
+        """
+        Compute MF profiles for multiple times and locations.
+        It is assumed that [u,v,N,rho,MFx,MFy] (attributes of data)
+        all have the shape (time, nlev, cell).
+
+        Parameters
+        ----------
+        data: ngc3ICON data structure that contains {     
+            u : zonal wind,
+            v : meridional wind,
+            nlev : number of vertical wind levels,
+            N : buoyancy frequency,
+            source_levs : vertical wind level index that corresponds to source_lev (default = 600 00) Pa,
+            rho : density relative to source level density (rho[i,j,k] = original_rho[i,j,k] / rho[i,source_lev, k]),
+            MFx : zonal momentum flux,
+            MFy : meridional momentum flux
+            }
+            
+        Returns 
+        -------
+        pred: a dict containing keys "MFx" and "MFy".
+
+        """
+        # Retrieve density and winds at source level.
+        rho0=torch.gather(data.rho, 1, data.source_levs.unsqueeze(1))
+
+        # Project winds onto direction.
+        wind = (self.direction[0] * data.u) + (self.direction[1] * data.v)
+        
+        # Compute unsigned momentum flux profile.
+        F_c = (rho0*self.mom_flux)
+        
+        # Compute signs everywhere and at source level.
+        c_hat = torch.sign(self.phase_speeds-wind)
+        c_hat0 = torch.gather(c_hat, 1, data.source_levs.unsqueeze(1))
+        
+        # Compute breaking conditions.
+        breaking_cond = data.rho * self.h_wavenum*torch.abs(self.phase_speeds - wind)**3 / (2*data.N)
+        
+        # Create mask for being above source level.
+        levs = torch.Tensor(range(90)).unsqueeze(0).unsqueeze(2).unsqueeze(3)
+        above_source = levs <= data.source_levs.unsqueeze(1)
+        
+        # Update breaking conditions to 0 if there's a sign change. 
+        breaking_cond = torch.where(c_hat == c_hat0, breaking_cond,0)
+        
+        # Allocate space for MF. 
+        MF = torch.zeros(data.__getattribute__('MFx').shape)
+        
+        # Loop over levels (bottom to top). 
+        # If breaking condition met and above source level, adjust F_c.
+        # Before moving on to next level, sum up the fluxes. 
+        for lev in range(data.nlev-1,-1,-1):
+            # If breaking,
+            breaking= F_c >= breaking_cond[:,lev:lev+1,:,:]
+
+            # and above source, then update. update is a mask.
+            update = breaking * above_source[:,lev:lev+1,:,:]
+
+            # This is equivalent to assigning breaking_cond where update is True, 
+            # and F_c to where update is False.
+            # Remember that breaking_cond was includes sign change already. 
+            F_c = torch.where(update, breaking_cond[:,lev:lev+1,:,:], F_c)
+
+            # Assign appropriate signs and sum MFs across phase speeds.
+            MF[:,lev,:] = torch.sum(c_hat0*F_c*update,dim=3).squeeze()
+        return MF
+    def _predict(
         self, data:n3
     ) -> np.ndarray:
         """
