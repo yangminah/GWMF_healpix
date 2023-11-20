@@ -52,6 +52,21 @@ class ngc3ICON:
         self.MFy = torch.tensor(dsYy["MFy"].values)
         # del dsX dsYx dsYy
     
+    def _get_profile(self, timei:int|str|np.datetime64, loci:int|np.ndarray, **kwargs) -> dict:
+        latlons = kwargs.get('latlons', None)
+        
+        if isinstance(loci, np.ndarray) and latlons is None:
+            raise Exception("If providing lat/lon loc, need latlon information of data slice.")
+            
+        # Call loaded functions.
+        if isinstance(timei, int) == False:
+            timei = self._get_timeidx(timei)
+        if isinstance(loci, int) == False and latlons is not None:
+            loci = self._get_locidx(loci, latlons)
+        if isinstance(timei, int|np.int64) and isinstance(loci, int|np.int64):
+            return self._get_profile_from_idx(timei,loci)
+        raise Exception("Could not infer time/loc indices.")
+    
     def _get_profile_from_idx(self, timeidx:int, locidx:int) -> dict: 
         """
         Picks out a single profile by time and loc index.
@@ -64,25 +79,31 @@ class ngc3ICON:
         datum["nlev"] = self.nlev
         datum["source_levs"] = self.source_levs[timeidx,locidx,:]
         return datum
+    
+    def _get_timeidx(self,timeidf:str|np.datetime64):
+        """
+        Get time indices when given as string or np.datetime64.
+        """
+        if isinstance(timeidf,str):
+            slist = timeidf.split("-")
+            year, mon, day, hour = int(slist[0]), int(slist[1]), int(slist[2]), int(slist[3][1:])
+            datetimestr=np.datetime64(f"{year}-{mon:02d}-{day:02d}T{hour:02d}:00")
+        elif isinstance(timeidf,np.datetime64):
+            datetimestr=timeidf
+        return np.where(self.timevals == datetimestr)[0][0]
         
-    def _get_profile_from_identifiers(self, timeidf: str, locidf: np.array, latlons: np.array) -> dict :
+    def _get_locidx(self, locidf: list|np.ndarray, latlons: np.ndarray) -> dict :
         """
-        Compute appropriate time and loc indices and picks out a single profile.
-
-        Parameters:
-        -----------
-        slist must be in the form "YEAR-MON-DAY-HOUR"
+        Get loc indices when given as an np.array or list.
+        This method requires that we have the latitude longitude information of the data.
+        Parameters
+        ---------
+        locidf = [lat,lon] or np.ndarray([lat,lon]) with shape(2,)
         """
-        slist = timeidf.split("-")
-        year, mon, day, hour = int(slist[0]), int(slist[1]), int(slist[2]), int(slist[3])
-        print(year,mon,day,hour)
-        timeidx=np.where(self.timevals == f"{year}-{mon}-{day} {hour:02d}:00:00")[0]
-
-        locidf=locidf[:, np.newaxis]
-        locidx = np.argmin(np.linalg.norm(latlons-locidf,axis=0))
-        print(timeidx, locidx)
-        return self._get_profile_from_idx(timeidx, locidx)
-            
+        if isinstance(locidf,list):
+            locidf = np.array(locidf)
+        locidf=locidf[:, np.newaxis] # Now has shape (2,1)
+        return np.argmin(np.linalg.norm(latlons-locidf,axis=0))
             
     def _get_derived(self, dsX: xr.Dataset, source_lev: float) -> torch.Tensor:
         """
