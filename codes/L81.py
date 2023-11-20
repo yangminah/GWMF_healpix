@@ -1,14 +1,13 @@
-"""Vectorized implementation of the L81 parameterization."""
-#from typing import Literal, Optional, Union, overload
-#import numpy as np
+"""
+Vectorized and single profile implementation of the L81 parameterization.
+"""
 import torch
 from ngc3ICON import ngc3ICON as n3
 import numpy as np
-# from .mima import R_DRY, C_P, GRAV
+
 R_DRY = 287.04
 C_P = 7 * R_DRY / 2
 GRAV = 9.8
-
 
 class Lindzen1981:
     def __init__(self, 
@@ -21,14 +20,14 @@ class Lindzen1981:
         k: float = 2 * np.pi / 100e3
         ) -> None:
         """Initialize an L81 instance."""
-        if type(direction)==str:
+        if isinstance(direction, str):
             dir_dict={"N": (0,1),
                       "NE": (1/np.sqrt(2),1/np.sqrt(2)),
                       "E": (1,0),
                       "SE":  (1/np.sqrt(2),-1/np.sqrt(2))
                      }
             self.direction = dir_dict[direction]
-        elif type(direction)==float:
+        elif isinstance(direction, float):
             self.direction=(np.cos(direction), np.sin(direction))
         self.B_m = B_m
         self.c_w = c_w
@@ -38,10 +37,62 @@ class Lindzen1981:
         
         self.h_wavenum = k
         self.phase_speeds, self.mom_flux = self._init_wave_packet((B_m, c_w, c_0, c_max, dc))
+    
+    def _predict(self, datum: dict, split:bool=False) -> dict:
+        """
+        Compute a single MF profile. 
+        datum values are the same parameters as _vectorized_predict. 
+        """
+        # Retrieve density at source level.
+        rho0 = datum["rho"][datum["source_levs"]]
+        
+        # Project winds onto direction.
+        wind = (self.direction[0]*datum["u"]) + (self.direction[1]*datum["v"])
+        
+        # Compute unsigned momentum flux profile.
+        F_c = rho0 * self.mom_flux
+        
+        # Compute signs everywhere and at source level.
+        c_hat = torch.sign(self.phase_speeds-wind)
+        c_hat0 = c_hat[datum["source_levs"]]
+        
+        # Compute breaking conditions.
+        breaking_cond = datum["rho"] * self.h_wavenum*torch.abs(self.phase_speeds - wind)**3 / (2*datum["N"])
+        
+        # Create mask for being above source level.
+        above_source = torch.Tensor(range(90)) <= datum["source_levs"]
+        
+        # Update breaking conditions to 0 if there's a sign change. 
+        breaking_cond = torch.where(c_hat == c_hat0, breaking_cond,0)
+        
+        # Allocate space for MF. 
+        MF = torch.zeros(datum["MFx"].shape)
+        
+        # Loop over levels (bottom to top). 
+        # If breaking condition met and above source level, adjust F_c.
+        # Before moving on to next level, sum up the fluxes. 
+        for lev in range(datum["nlev"]-1,-1,-1):
+            # If breaking,
+            breaking= F_c >= breaking_cond[lev:lev+1,:]
 
-    def _vectorized_predict(
-        self, data:n3
-    ) -> np.ndarray:
+            # and above source, then update. update is a mask.
+            update = breaking * above_source[lev:lev+1]
+
+            # This is equivalent to assigning breaking_cond where update is True, 
+            # and F_c to where update is False.
+            # Remember that breaking_cond was includes sign change already. 
+            F_c = torch.where(update, breaking_cond[lev:lev+1,:], F_c)
+
+            # Assign appropriate signs and sum MFs across phase speeds.
+            MF[lev] = torch.sum(c_hat0*F_c*above_source,dim=1).squeeze()
+            
+        if split:
+            MFx, MFy = self.direction[0]*MF, self.direction[1]*MF
+            MF = {"MFx":MFx,"MFy":MFy}
+        return MF
+        
+    
+    def _vectorized_predict(self, data:n3, split:bool = False) -> np.ndarray:
         """
         Compute MF profiles for multiple times and locations.
         It is assumed that [u,v,N,rho,MFx,MFy] (attributes of data)
@@ -65,14 +116,14 @@ class Lindzen1981:
         pred: a dict containing keys "MFx" and "MFy".
 
         """
-        # Retrieve density and winds at source level.
+        # Retrieve density at source level.
         rho0=torch.gather(data.rho, 1, data.source_levs.unsqueeze(1))
 
         # Project winds onto direction.
         wind = (self.direction[0] * data.u) + (self.direction[1] * data.v)
         
         # Compute unsigned momentum flux profile.
-        F_c = (rho0*self.mom_flux)
+        F_c = rho0*self.mom_flux
         
         # Compute signs everywhere and at source level.
         c_hat = torch.sign(self.phase_speeds-wind)
@@ -81,17 +132,17 @@ class Lindzen1981:
         # Compute breaking conditions.
         breaking_cond = data.rho * self.h_wavenum*torch.abs(self.phase_speeds - wind)**3 / (2*data.N)
         
+        # Update breaking conditions to 0 if there's a sign change. 
+        breaking_cond = torch.where(c_hat == c_hat0, breaking_cond,0)
+
         # Create mask for being above source level.
         levs = torch.Tensor(range(90)).unsqueeze(0).unsqueeze(2).unsqueeze(3)
         above_source = levs <= data.source_levs.unsqueeze(1)
         
-        # Update breaking conditions to 0 if there's a sign change. 
-        breaking_cond = torch.where(c_hat == c_hat0, breaking_cond,0)
-        
         # Allocate space for MF. 
         MF = torch.zeros(data.__getattribute__('MFx').shape)
         
-        # Loop over levels (bottom to top). 
+        # Loop over levels (bottom totop). 
         # If breaking condition met and above source level, adjust F_c.
         # Before moving on to next level, sum up the fluxes. 
         for lev in range(data.nlev-1,-1,-1):
@@ -107,69 +158,12 @@ class Lindzen1981:
             F_c = torch.where(update, breaking_cond[:,lev:lev+1,:,:], F_c)
 
             # Assign appropriate signs and sum MFs across phase speeds.
-            MF[:,lev,:] = torch.sum(c_hat0*F_c*update,dim=3).squeeze()
+            MF[:,lev,:] = torch.sum(c_hat0*F_c*above_source[:,lev:lev+1,:],dim=3).squeeze()
+        
+        if split:
+            MFx, MFy = self.direction[0]*MF, self.direction[1]*MF
+            MF = {"MFx":MFx,"MFy":MFy}
         return MF
-    def _predict(
-        self, data:n3
-    ) -> np.ndarray:
-        """
-        Compute MF profiles for multiple times and locations.
-        It is assumed that [u,v,N,rho,MFx,MFy] (attributes of data)
-        all have the shape (time, nlev, cell).
-
-        Parameters
-        ----------
-        data: ngc3ICON data structure that contains {     
-            u : zonal wind,
-            v : meridional wind,
-            nlev : number of vertical wind levels,
-            N : buoyancy frequency,
-            source_levs : vertical wind level index that corresponds to source_lev (default = 600 00) Pa,
-            rho : density relative to source level density (rho[i,j,k] = original_rho[i,j,k] / rho[i,source_lev, k]),
-            MFx : zonal momentum flux,
-            MFy : meridional momentum flux
-            }
-            
-        Returns 
-        -------
-        pred: a dict containing keys "MFx" and "MFy".
-
-        """
-        # Retrieve density and winds at source level.
-        rho0=torch.gather(data.rho, 1, data.source_levs.unsqueeze(1))
-        pred = {}
-        for i, (wind, MF) in enumerate(zip(["u","v"],["MFx","MFy"])):
-            wind0=torch.gather(data.__getattribute__(wind), 1, data.source_levs.unsqueeze(1))
-            pred[MF] = torch.zeros(data.__getattribute__(MF).shape)
-            # Get signs.
-            c_hat=torch.sign(self.phase_speeds-self.direction[i]*wind0)
-
-            # Port initial momentum flux profile.
-            F_c = (rho0*self.mom_flux)
-
-            # Compute breaking condition for all vertical levels.
-            breaking_cond = data.rho * self.h_wavenum*torch.abs(self.phase_speeds - self.direction[0]*data.__getattribute__(wind))**3 / (2*data.N)
-
-            # Loop over levels (bottom to top). If breaking condition met, adjust F_c.
-            # At each level, 
-            for lev in range(data.nlev-1,-1,-1):
-                # If above source
-                above_source_lev = (lev <= data.source_levs).unsqueeze(1)
-
-                # And breaking,
-                breaking = (F_c>=breaking_cond[:,lev:lev+1,:,:])
-
-                # Then update. update is a mask.
-                update = above_source_lev * breaking
-                
-                # This is equivalent to assigning breaking_cond where update is True, 
-                # and F_c to where update is False.
-                F_c = torch.where(update, breaking_cond[:,lev:lev+1,:,:], F_c)
-
-                # Assign appropriate signs and sum MFs across phase speeds.
-                pred[MF][:,lev,:] = torch.sum(c_hat*F_c*update,dim=3).squeeze()
-        return pred
-
     def _init_wave_packet(self, wave_packet_info:tuple) -> tuple:
         """
         Compute the initial (at source level) wave packet momentum fluxes. 
