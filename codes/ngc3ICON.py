@@ -42,6 +42,7 @@ class ngc3ICON:
         dsX = dsX.isel(cell=mask, time=self.timeidx)
         self.u = torch.tensor(dsX["ua"].values).unsqueeze(3)
         self.v = torch.tensor(dsX["va"].values).unsqueeze(3)
+        self.pfull = torch.tensor(dsX["pfull"].values).unsqueeze(3)
         self.nlev = int(dsX.level_full[-1].data)
         self.N, self.rho, self.source_levs = self._get_derived(dsX, self.source_lev)
         
@@ -72,7 +73,7 @@ class ngc3ICON:
         Picks out a single profile by time and loc index.
         """
         datum = {}
-        for var in ["u","v","N","rho"]:
+        for var in ["u","v","N","rho","pfull"]:
             datum[var] = self.__getattribute__(var)[timeidx,:,locidx,:]
         for var in ["MFx","MFy"]:
             datum[var] = self.__getattribute__(var)[timeidx,:,locidx]

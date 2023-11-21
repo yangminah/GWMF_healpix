@@ -59,11 +59,11 @@ class Lindzen1981:
         # Compute breaking conditions.
         breaking_cond = datum["rho"] * self.h_wavenum*torch.abs(self.phase_speeds - wind)**3 / (2*datum["N"])
         
-        # Create mask for being above source level.
-        above_source = torch.Tensor(range(90)) <= datum["source_levs"]
-        
         # Update breaking conditions to 0 if there's a sign change. 
         breaking_cond = torch.where(c_hat == c_hat0, breaking_cond,0)
+        
+        # Create mask for being above source level.
+        above_source = torch.Tensor(range(90)) <= datum["source_levs"]
         
         # Allocate space for MF. 
         MF = torch.zeros(datum["MFx"].shape)
@@ -84,11 +84,10 @@ class Lindzen1981:
             F_c = torch.where(update, breaking_cond[lev:lev+1,:], F_c)
 
             # Assign appropriate signs and sum MFs across phase speeds.
-            MF[lev] = torch.sum(c_hat0*F_c*above_source,dim=1).squeeze()
+            MF[lev] = torch.sum(self.dc*c_hat0*F_c*above_source[lev:lev+1],dim=1).squeeze()
             
         if split:
-            MFx, MFy = self.direction[0]*MF, self.direction[1]*MF
-            MF = {"MFx":MFx,"MFy":MFy}
+            MF = {"MFx":self.direction[0]*MF,"MFy":self.direction[1]*MF}
         return MF
         
     
@@ -127,7 +126,10 @@ class Lindzen1981:
         
         # Compute signs everywhere and at source level.
         c_hat = torch.sign(self.phase_speeds-wind)
-        c_hat0 = torch.gather(c_hat, 1, data.source_levs.unsqueeze(1))
+        #c_hat0 = torch.gather(c_hat, 1, data.source_levs.unsqueeze(1))
+        c_hat0 = torch.gather(c_hat, 1, 
+                              torch.repeat_interleave(data.source_levs.unsqueeze(1),self.mom_flux.shape[0],3)
+                             )
         
         # Compute breaking conditions.
         breaking_cond = data.rho * self.h_wavenum*torch.abs(self.phase_speeds - wind)**3 / (2*data.N)
@@ -158,11 +160,10 @@ class Lindzen1981:
             F_c = torch.where(update, breaking_cond[:,lev:lev+1,:,:], F_c)
 
             # Assign appropriate signs and sum MFs across phase speeds.
-            MF[:,lev,:] = torch.sum(c_hat0*F_c*above_source[:,lev:lev+1,:],dim=3).squeeze()
+            MF[:,lev,:] = torch.sum(self.dc*c_hat0*F_c*above_source[:,lev:lev+1,:],dim=3).squeeze()
         
         if split:
-            MFx, MFy = self.direction[0]*MF, self.direction[1]*MF
-            MF = {"MFx":MFx,"MFy":MFy}
+            MF = {"MFx":self.direction[0]*MF,"MFy":self.direction[1]*MF}
         return MF
     def _init_wave_packet(self, wave_packet_info:tuple) -> tuple:
         """
