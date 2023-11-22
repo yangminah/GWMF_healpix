@@ -37,11 +37,56 @@ class Lindzen1981:
         
         self.h_wavenum = k
         self.phase_speeds, self.mom_flux = self._init_wave_packet((B_m, c_w, c_0, c_max, dc))
+    def _predict(self, datum: dict, split:bool = False) -> dict|torch.Tensor:
+        """
+        Compute a single MF profile in a vectorized way. (No loop)
+        datum values are the same as _loop_predict and _loop_predict_multiple.
+        """
+        # Retrieve density at source level.
+        rho0 = datum["rho"][datum["source_levs"]]
+
+        # Project winds onto direction.
+        wind = (self.direction[0]*datum["u"]) + (self.direction[1]*datum["v"])
+
+        # Compute unsigned momentum flux profile.
+        F_c0 = rho0 * self.mom_flux
+        F_c = F_c0.repeat(datum["nlev"],1)
+
+        # Compute signs everywhere and at source level.
+        c_hat = torch.sign(self.phase_speeds-wind)
+        c_hat0 = c_hat[datum["source_levs"]]
+
+        # Compute breaking conditions.
+        breaking_cond = datum["rho"] * self.h_wavenum*torch.abs(self.phase_speeds - wind)**3 / (2*datum["N"])
+
+        # This will be useful for applying changes based on sign change and breaking levels.
+        dummy_levs=torch.arange(90,dtype=torch.uint8).unsqueeze(1)
+        above_source = dummy_levs <= datum["source_levs"]
+
+        # Compute sign change bools.
+        sign_change = (c_hat != c_hat0)*above_source
+
+        # Update the breaking condition. 
+        breaking_cond = torch.where(dummy_levs<=self._find_lowest_True(sign_change), 0, breaking_cond)
+
+        # If breaking, update all levels above to breaking condition.
+        # Repeat until there are no more breaking waves.
+        breaking = (F_c >= breaking_cond) * above_source
+        while torch.sum(breaking).item() > 0:
+            breaking_levels = self._find_lowest_True(breaking)
+            F_c = torch.where(dummy_levs <= breaking_levels, breaking_cond.gather(0,breaking_levels), F_c)
+            breaking =  (F_c >breaking_cond) * above_source
+        
+        # Sum of the fluxes at eaach level.
+        MF= torch.sum(self.dc*F_c*c_hat0*above_source, 1)
+        if split:
+            MF = {"MFx":self.direction[0]*MF,"MFy":self.direction[1]*MF}
+        return MF
     
-    def _predict(self, datum: dict, split:bool=False) -> dict:
+    def _loop_predict(self, datum: dict, split:bool=False) -> dict|torch.Tensor:
         """
         Compute a single MF profile. 
-        datum values are the same parameters as _vectorized_predict. 
+        datum values are the same parameters as _loop_predict_multiple. 
         """
         # Retrieve density at source level.
         rho0 = datum["rho"][datum["source_levs"]]
@@ -60,7 +105,7 @@ class Lindzen1981:
         breaking_cond = datum["rho"] * self.h_wavenum*torch.abs(self.phase_speeds - wind)**3 / (2*datum["N"])
         
         # Update breaking conditions to 0 if there's a sign change. 
-        breaking_cond = torch.where(c_hat == c_hat0, breaking_cond,0)
+        breaking_cond = torch.where(c_hat != c_hat0, 0, breaking_cond)
         
         # Create mask for being above source level.
         above_source = torch.Tensor(range(90)) <= datum["source_levs"]
@@ -71,12 +116,12 @@ class Lindzen1981:
         # Loop over levels (bottom to top). 
         # If breaking condition met and above source level, adjust F_c.
         # Before moving on to next level, sum up the fluxes. 
-        for lev in range(datum["nlev"]-1,-1,-1):
+        for lev in range(datum["source_levs"]-1,-1,-1):
             # If breaking,
             breaking= F_c >= breaking_cond[lev:lev+1,:]
 
             # and above source, then update. update is a mask.
-            update = breaking * above_source[lev:lev+1]
+            update = breaking# * above_source[lev:lev+1]
 
             # This is equivalent to assigning breaking_cond where update is True, 
             # and F_c to where update is False.
@@ -91,7 +136,7 @@ class Lindzen1981:
         return MF
         
     
-    def _vectorized_predict(self, data:n3, split:bool = False) -> np.ndarray:
+    def _loop_predict_multiple(self, data:n3, split:bool = False) -> dict|torch.Tensor:
         """
         Compute MF profiles for multiple times and locations.
         It is assumed that [u,v,N,rho,MFx,MFy] (attributes of data)
@@ -144,10 +189,11 @@ class Lindzen1981:
         # Allocate space for MF. 
         MF = torch.zeros(data.__getattribute__('MFx').shape)
         
-        # Loop over levels (bottom totop). 
+        # Loop over levels (lowest source level to top). 
         # If breaking condition met and above source level, adjust F_c.
-        # Before moving on to next level, sum up the fluxes. 
-        for lev in range(data.nlev-1,-1,-1):
+        # Before moving on to next level, sum up the fluxes.
+        # torch.max(data.source_levs)data.nlev-1
+        for lev in range(torch.max(data.source_levs),-1,-1):
             # If breaking,
             breaking= F_c >= breaking_cond[:,lev:lev+1,:,:]
 
@@ -207,3 +253,10 @@ class Lindzen1981:
         """
 
         return torch.linspace(-c_max, c_max, int(2 * c_max / dc + 1))
+
+    def _find_lowest_True(self, change: torch.Tensor) -> torch.Tensor:
+        levs,phase_speeds=change.to_sparse().indices()
+        change_list = torch.zeros(1,change.shape[1],dtype=torch.int64)
+        for i in set(phase_speeds.tolist()):
+            change_list[0,i] = torch.max(levs[phase_speeds==i])
+        return change_list
