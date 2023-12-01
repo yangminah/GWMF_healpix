@@ -15,7 +15,7 @@ class ngc3ICON:
     def __init__(
         self, dsX: xr.Dataset, dsYx: xr.Dataset, dsYy: xr.Dataset, 
         mask: np.array, time_range: list,
-        source_lev :float = 600e2
+        source_lev :float = 200e2
     ) -> None:
         """
         Initialize an instance of ngc3ICON.
@@ -45,7 +45,6 @@ class ngc3ICON:
         self.pfull = torch.tensor(dsX["pfull"].values).unsqueeze(3)
         self.nlev = int(dsX.level_full[-1].data)
         self.N, self.rho, self.source_levs = self._get_derived(dsX, self.source_lev)
-        
         # Load output variables.
         dsYx = dsYx.isel(cell=mask, time=self.timeidx)
         dsYy = dsYy.isel(cell=mask, time=self.timeidx)
@@ -126,21 +125,22 @@ class ngc3ICON:
         and bottom/top differencing for the top-most and bottom-most levels.
 
         """
-        # Get number of levels.
-        nlev = int(dsX.level_full[-1].values)
-
         # Get top and bottom indices for differencing.
         t_idx = torch.arange(-1, self.nlev -1); t_idx[0] = 0
         b_idx = torch.arange(1, self.nlev + 1); b_idx[-1] = self.nlev - 1
         # Compute dTdz
         T = torch.tensor(dsX["ta"].values)
         z = torch.tensor(dsX["zg"].values)
-        dTdz = torch.index_select(T, T.shape.index(self.nlev), t_idx) - torch.index_select(T, T.shape.index(self.nlev), b_idx)
-        dTdz /=torch.index_select(z, z.shape.index(self.nlev), t_idx) - torch.index_select(z, z.shape.index(self.nlev), b_idx)   
+        N = torch.index_select(T, T.shape.index(self.nlev), t_idx) - torch.index_select(T, T.shape.index(self.nlev), b_idx)
+        N /=torch.index_select(z, z.shape.index(self.nlev), t_idx) - torch.index_select(z, z.shape.index(self.nlev), b_idx)   
         
-        # Compute N
-        N = torch.sqrt(torch.abs((GRAV / T) * (dTdz + GRAV / C_P)))
-        del z, dTdz
+        # Compute N^2 = (GRAV / T) * (dTdz + GRAV / C_P).
+        # Adjust source level if negative. 
+        N += (GRAV / C_P)
+        N *= (GRAV / T)
+        N = torch.sqrt(torch.abs(N))
+        #N = (GRAV / T) * (dTdz + GRAV / C_P)
+        del z#, dTdz
         
         # Compute density (rho).
         P = torch.tensor(dsX["pfull"].values)

@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 import xarray as xr
 import healpy as hp
 import intake
@@ -64,3 +65,47 @@ def ang_range(npix, lat_start, lat_end, lon_start, lon_end):
     lon_inds=np.where(np.logical_and(lon_pix>=lon_start,lon_pix<=lon_end))[0]
     rect_cell_inds=np.intersect1d(lat_inds,lon_inds)
     return rect_cell_inds
+
+def find_lowest_True(self, change: torch.Tensor) -> torch.Tensor:
+    levs,phase_speeds=change.to_sparse().indices()
+    change_list = -torch.ones(1,change.shape[1],dtype=torch.int64)
+    for i in set(phase_speeds.tolist()):
+        change_list[0,i] = torch.max(levs[phase_speeds==i])
+    return change_list
+
+def find_lowest_True_vectorized(x:torch.Tensor, dimlev=1, levshape=None):
+    if levshape is None:
+        levshape=[i for i in x.shape]
+        levshape.remove(levshape[dimlev])
+    lev=-torch.ones(levshape, dtype=torch.int64)
+    for i in range(x.shape[dimlev]-1,-1,-1):
+        lev = torch.where((lev==-1) & (x.select(dimlev, i) == True), i*torch.ones(levshape, dtype=torch.int64), lev)
+    return lev.unsqueeze(dimlev)
+
+def find_uppermost_True_vectorized(x:torch.Tensor, dimlev=1, levshape=None):
+    if levshape is None:
+        levshape=[i for i in x.shape]
+        levshape.remove(levshape[dimlev])
+    lev=-torch.ones(levshape, dtype=torch.int64)
+    for i in range(0,x.shape[dimlev]):
+        lev = torch.where((lev==-1) & (x.select(dimlev, i) == True), i*torch.ones(levshape, dtype=torch.int64), lev)
+    return lev.unsqueeze(dimlev)
+
+def find_uppermost_False_vectorized(x:torch.Tensor, dimlev=1, levshape=None):
+    if levshape is None:
+        levshape=[i for i in x.shape]
+        levshape.remove(levshape[dimlev])
+    lev=-torch.ones(levshape, dtype=torch.int64)
+    for i in range(0,x.shape[dimlev]):
+        lev = torch.where((lev==-1) & (x.select(dimlev, i) == False), i*torch.ones(levshape, dtype=torch.int64), lev)
+    return lev.unsqueeze(dimlev)
+
+def find_lowest_True_loop(change: torch.Tensor) -> torch.Tensor:
+    change_shape=[i for i in change.shape]; change_shape[1]=1
+    change_list = -torch.ones(change_shape, dtype=torch.int64)
+    for t in range(change.shape[0]):
+        for l in range(change.shape[2]):
+            levs,phase_speeds = change[t,:,l,:].to_sparse().indices()
+            for p in set(phase_speeds.tolist()):
+                change_list[t,0,l,p] = torch.max(levs[(phase_speeds==p)])
+    return change_list

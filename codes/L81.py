@@ -4,6 +4,7 @@ Vectorized and single profile implementation of the L81 parameterization.
 import torch
 from ngc3ICON import ngc3ICON as n3
 import numpy as np
+from utils import find_lowest_True, find_lowest_True_vectorized
 
 R_DRY = 287.04
 C_P = 7 * R_DRY / 2
@@ -72,7 +73,7 @@ class Lindzen1981:
         
         # Update the breaking condition with sign change information. 
         breaking_cond =torch.where(
-            levs<=self._find_lowest_True_vectorized(sign_change, levshape=levshape),
+            levs<=find_lowest_True_vectorized(sign_change, levshape=levshape),
             0,
             breaking_cond
         )
@@ -81,7 +82,7 @@ class Lindzen1981:
         # Repeat until there are no more breaking waves.
         breaking = (F_c >= breaking_cond) * above_source
         while torch.sum(breaking).item() > 0:
-            breaking_levels = self._find_lowest_True_vectorized(breaking, levshape=levshape)
+            breaking_levels = find_lowest_True_vectorized(breaking, levshape=levshape)
             F_c = torch.where(levs <= breaking_levels, 
                               breaking_cond.gather(1, torch.where(breaking_levels==-1, 0, breaking_levels)), 
                               F_c)
@@ -122,13 +123,13 @@ class Lindzen1981:
         sign_change = (c_hat != c_hat0)*above_source
 
         # Update the breaking condition to include sign changes. 
-        breaking_cond = torch.where(levs<=self._find_lowest_True(sign_change), 0, breaking_cond)
+        breaking_cond = torch.where(levs<=find_lowest_True(sign_change), 0, breaking_cond)
 
         # If breaking, update all levels above to breaking condition.
         # Repeat until there are no more breaking waves.
         breaking = (F_c >= breaking_cond) * above_source
         while torch.sum(breaking).item() > 0:
-            breaking_levels = self._find_lowest_True(breaking)
+            breaking_levels = find_lowest_True(breaking)
             F_c = torch.where(levs <= breaking_levels, 
                               breaking_cond.gather(0, torch.where(breaking_levels==-1, 0, breaking_levels)), 
                               F_c)
@@ -319,29 +320,3 @@ class Lindzen1981:
         """
 
         return torch.linspace(-c_max, c_max, int(2 * c_max / dc + 1))
-
-    def _find_lowest_True(self, change: torch.Tensor) -> torch.Tensor:
-        levs,phase_speeds=change.to_sparse().indices()
-        change_list = -torch.ones(1,change.shape[1],dtype=torch.int64)
-        for i in set(phase_speeds.tolist()):
-            change_list[0,i] = torch.max(levs[phase_speeds==i])
-        return change_list
-    
-    def _find_lowest_True_vectorized(self, x:torch.Tensor, dimlev=1, levshape=None):
-        if levshape is None:
-            levshape=[i for i in x.shape]
-            levshape.remove(levshape[dimlev])
-        lev=-torch.ones(levshape, dtype=torch.int64)
-        for i in range(x.shape[dimlev]-1,-1,-1):
-            lev = torch.where((lev==-1) & (x.select(dimlev, i) == True), i*torch.ones(levshape, dtype=torch.int64), lev)
-        return lev.unsqueeze(dimlev)
-    
-    def _find_lowest_True_loop(self, change: torch.Tensor) -> torch.Tensor:
-        change_shape=[i for i in change.shape]; change_shape[1]=1
-        change_list = -torch.ones(change_shape, dtype=torch.int64)
-        for t in range(change.shape[0]):
-            for l in range(change.shape[2]):
-                levs,phase_speeds = change[t,:,l,:].to_sparse().indices()
-                for p in set(phase_speeds.tolist()):
-                    change_list[t,0,l,p] = torch.max(levs[(phase_speeds==p)])
-        return change_list
