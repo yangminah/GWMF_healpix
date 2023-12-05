@@ -135,7 +135,7 @@ def find_uppermost_false_vectorized(x: torch.Tensor, dimlev=1, levshape=None):
     lev = -torch.ones(levshape, dtype=torch.int64)
     for i in range(0, x.shape[dimlev]):
         lev = torch.where(
-            (lev == -1) & (not x.select(dimlev, i)),
+            (lev == -1) & (~x.select(dimlev, i)),
             i * torch.ones(levshape, dtype=torch.int64),
             lev,
         )
@@ -156,3 +156,35 @@ def find_lowest_true_loop(change: torch.Tensor) -> torch.Tensor:
             for p in set(phase_speeds.tolist()):
                 change_list[t, 0, l, p] = torch.max(levs[(phase_speeds == p)])
     return change_list
+
+
+def wasserstein(u: torch.Tensor, v: torch.Tensor, dimlev:int = 0):
+    """
+    Compute 1D Wasserstein distance along dimlev, without checking for 
+    whether each vector already meets requirements, (i.e. nonnegative),
+    and assuming that nodes are equispaced. 
+    In other words, compute cdf, and take L1 norm of cdf. 
+    """
+    u_cdf = torch.cumsum(u,dimlev)
+    v_cdf = torch.cumsum(v,dimlev)
+    if torch.sum(u_cdf.select(dimlev,-1)!=0)>0 and torch.sum(v_cdf.select(dimlev,-1)!=0)>0:
+        u_cdf = u_cdf / u_cdf.select(dimlev,-1)
+        v_cdf = v_cdf / v_cdf.select(dimlev,-1)
+    return torch.sum(torch.abs(u_cdf - v_cdf), dimlev)
+
+def wasserstein_signed(u: torch.Tensor, v: torch.Tensor, dimlev:int = 0):
+    """
+    Separate a profile into its negative and positive parts, 
+    and compute the wasserstein distance on them separately.
+    """
+    Up = torch.where(u > 0, u, 0)
+    Un = torch.where(v < 0, -u, 0)
+    Vp = torch.where(v > 0, v, 0)
+    Vn = torch.where(v < 0, -v, 0)
+    return (wasserstein(Up,Vp, dimlev)+wasserstein(Un,Vn, dimlev))/4
+
+def L2norm(u: torch.Tensor, v: torch.Tensor, dimlev:int = 0):
+    """
+    regular old L2 norm.
+    """
+    return torch.sqrt(torch.sum(torch.square(u-v),dimlev))
