@@ -24,10 +24,10 @@ class Lindzen1981_sv:
         self.direction = direction
         self.B_m = B_m.unsqueeze(0).unsqueeze(1).unsqueeze(3)
         self.dc = dc
-
+        self.wave_packet=(self.B_m, c_w, c_0, c_max, self.dc)
         self.h_wavenum = k
         self.phase_speeds, self.mom_flux = self._init_wave_packet(
-            (self.B_m, c_w, c_0, c_max, self.dc)
+            self.wave_packet
         )
         self.full_shape = [
             0,
@@ -35,7 +35,10 @@ class Lindzen1981_sv:
             B_m.shape[0],
             self.phase_speeds.shape[-1],
         ]
-
+    
+    def predict(self, data, split : bool =False):
+        return self._loop_predict(data, split)
+    
     def _loop_predict(self, datum: dict, split: bool = False) -> dict | torch.Tensor:
         """
         Compute MF profiles for multiple times and locations.
@@ -117,7 +120,8 @@ class Lindzen1981_sv:
             MF[lev] = torch.sum(self.dc * c_hat0 * F_c, dim=3).squeeze()
 
         if split:
-            return {"MFx": self.direction[0] * MF, "MFy": self.direction[1] * MF}
+            d = self.direction.unsqueeze(0).unsqueeze(2)
+            return {"MFx": torch.cos(d) * MF, "MFy": torch.sin(d) * MF}
         return MF
 
     def _init_wave_packet(self, wave_packet_info: tuple) -> tuple:
