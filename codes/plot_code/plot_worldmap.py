@@ -33,7 +33,7 @@ def nnshow(var, nx=1000, ny=1000, ax=None, **kwargs):
     pix = hp.vec2pix(hp.npix2nside(len(var)), *xyz[valid].T, nest=False)
     res = np.full(xyz.shape[:-1], np.nan, dtype=var.dtype)
     res[valid] = var[pix]
-    return ax.imshow(res, extent=xlims+ylims, origin="lower", cmap = 'RdBu_r', **kwargs)
+    return ax.imshow(res, extent=xlims+ylims, origin="lower", **kwargs)
 
 def worldmap(var, **kwargs):
     projection = ccrs.Robinson(central_longitude=0.0)

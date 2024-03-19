@@ -15,11 +15,12 @@ from plot_worldmap import nnshow, worldmap
 
 # set up: what variables, levels, months to plot
 variables = ['MFx', 'MFy']
-levels = np.array([65, 60, 50, 41, 34, 30])
-heights = np.array([6, 8, 12, 16, 20, 24])
+levels = np.array([50, 41, 34, 24])
+heights = np.array([12, 16, 20, 30])    # km (approx. 100, 40, 50, 10 hPa)
+vmax = np.array([0.1, 0.1, 0.1, 0.1])
 truncs = [71, 214]
 
-months = ['2021-01', '2021-04', '2021-07', '2021-10']
+months = ['2021-01', '2021-03', '2021-04', '2021-05', '2021-07', '2021-08', '2021-10', '2021-12']
 
 # where to save plots - new sub directories will be created within here for each level/variable/month
 plot_dir = "/work/bm1233/icon_for_ml/spherical/plots/MF_maps/"
@@ -39,18 +40,17 @@ for var in variables:
             elif trunc == 214:
                 scale = 0.05
             
-            for lev, h in zip(levels, heights):
+            for k, (lev, h) in enumerate(zip(levels, heights)):
                 folder_path = f"{plot_dir}/level{lev}/snapshots_{var}/{month}/"
                 if not os.path.exists(folder_path):
                     os.makedirs(folder_path)
                     
-                maxval = np.abs(ds.sel(level_full = lev)[var].values.flatten()).max()
                 times = ds.time.values
                 for t in times:
                     day = str(np.datetime64(t, 'D'))
                     timestamp = str(np.datetime64(t, 'h')).replace('-','')
-                    worldmap(ds.sel(time = t, level_full = lev)[var], vmin = -scale*maxval, vmax = scale*maxval)
-                    plt.title(f'{var}: {day}, level_full = {lev}')
+                    worldmap(ds.sel(time = t, level_full = lev)[var], vmin = -vmax[k], vmax=vmax[k], cmap = 'RdBu_r')
+                    plt.title(f'{var}: {day}, level_full = {lev}, height = {h}km')
                     plt.savefig(f'{folder_path}/{var}_level{lev}_trunc{trunc}_res51km_{timestamp}.png',dpi = 300, bbox_inches='tight')
                     
                 image_list = []

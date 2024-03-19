@@ -13,8 +13,8 @@ from plot_worldmap import nnshow, worldmap
 
 # set up: what variables, levels to plot
 variables = ['MFx', 'MFy']
-levels = np.array([50, 41, 34, 24 ])
-heights = np.array([12, 16, 20, 30])
+levels = np.array([50, 41, 34, 24 ])[1:]
+heights = np.array([12, 16, 20, 30])[1:]
 truncs = [71, 214]
 
 # where to save plots - new sub directories will be created within here for each level/variable
@@ -92,12 +92,13 @@ for var in variables:
                     print(f"plotting region {region}")
                     lon_min, lon_max, lat_min, lat_max = loon_regions[region]
                     inds = get_indices(lon, lat, lon_min, lon_max, lat_min, lat_max)
-                    region_vals = vals.isel(ring_cell=inds).values.flatten()*1000
+                    region_vals = vals.isel(ring_cell=inds).values.flatten()
 
                     # Plot distributions
                     plt.clf()
-                    plt.hist(region_vals,  bins=np.arange(-500, 500.1, 10), histtype="step", density=True)
-                    plt.xlabel(f"{var} (mPa)")
+                    plt.hist(region_vals,  bins=np.arange(-1, 1.01, 0.01), histtype="step", density=True, color="black")
+                    plt.yscale("log")
+                    plt.xlabel(f"{var} (Pa)")
                     plt.title(f'{var}: {s}, region = {region}, level_full = {lev}, height = {h}km')
                     region_ = region.replace(' ','_')
                     plot_name = f'{plot_dir}/{region_}_{var}_{h}km_{s}trunc{trunc}.png'
@@ -105,10 +106,11 @@ for var in variables:
                     print(f"saved as {plot_name}")
 
                     # Plot log distributions
+                    region_vals = region_vals * 1000.
                     pos_inds = region_vals > 0.
                     plt.clf()
-                    plt.hist(np.log(region_vals[pos_inds]),  bins=np.arange(-2, 2.1, 0.1), histtype="step", color="r", label="W", density=True)
-                    plt.hist(np.log(-region_vals[~pos_inds]), bins=np.arange(-2, 2.1, 0.1), histtype="step", color="b", label="E", density=True)
+                    plt.hist(np.log10(region_vals[pos_inds]),  bins=np.arange(-5, 5.1, 0.1), histtype="step", color="r", label="W", density=True)
+                    plt.hist(np.log10(-region_vals[~pos_inds]), bins=np.arange(-5, 5.1, 0.1), histtype="step", color="b", label="E", density=True)
                     plt.legend(loc='upper left')
                     plt.xlabel(f"log_10 of {var} in mPa")
                     plt.title(f'{var}: {s}, region = {region}, level_full = {lev}, height = {h}km')
