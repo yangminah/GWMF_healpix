@@ -53,6 +53,13 @@ loon_regions = {
         "Extratropical Atlantic"   :   (   280.,   10.,    20.,    45. ) ,
         "Global"                   :   (     0.,  360.,   -90.,    90. )
         }
+# Define regions we care about
+## TODO: need to add extratropics NH and SH, shoudl also weight by area!!
+all_regions = {
+        "Tropics"                  :   (    0.,   360.,   -15.,    15. ) ,
+        "Extratropics"             :   (    0.,   360.,    15,     90. ) ,
+        "Global"                   :   (     0.,  360.,   -90.,    90. )
+        }
 
 
 for var in variables:
