@@ -12,7 +12,8 @@ import matplotlib.pylab as plt
 from plot_worldmap import nnshow, worldmap
 
 # set up: what variables, levels to plot
-variables = ['MFx', 'MFy']
+variables = ['MFx', 'MFy', 'Dx', 'Dy']
+variable_max = [1., 1., 5.e-3, 5.e-3]
 levels = np.array([50, 41, 34, 24 ])[1:]
 heights = np.array([12, 16, 20, 30])[1:]
 truncs = [71, 214]
@@ -34,6 +35,7 @@ def get_lon_lat(nside, pixels):
     return hp.pix2ang(nside, pixels, lonlat=True)
 
 def get_indices(lon, lat, lon_min, lon_max, lat_min, lat_max):
+    
     if lon_min < lon_max:
         return (lon > lon_min) * (lon < lon_max) * (lat > lat_min) * (lat < lat_max)
     else:
@@ -57,12 +59,13 @@ loon_regions = {
 ## TODO: need to add extratropics NH and SH, shoudl also weight by area!!
 all_regions = {
         "Tropics"                  :   (    0.,   360.,   -15.,    15. ) ,
-        "Extratropics"             :   (    0.,   360.,    15,     90. ) ,
+        "ExtratropicsNH"           :   (    0.,   360.,    15,     90. ) ,
+        "ExtratropicsSH"           :   (    0.,   360.,    -90.,     -15. )
         "Global"                   :   (     0.,  360.,   -90.,    90. )
         }
 
 
-for var in variables:
+for v, var in enumerate(variables):
     for trunc in truncs:
         print(f'{var}, truncation {trunc}')
         
@@ -95,15 +98,15 @@ for var in variables:
                 # Regions
                 lon, lat = get_lon_lat(nside, pixels)
                 
-                for region in loon_regions.keys():
+                for region in all_regions.keys():
                     print(f"plotting region {region}")
-                    lon_min, lon_max, lat_min, lat_max = loon_regions[region]
+                    lon_min, lon_max, lat_min, lat_max = all_regions[region]
                     inds = get_indices(lon, lat, lon_min, lon_max, lat_min, lat_max)
                     region_vals = vals.isel(ring_cell=inds).values.flatten()
 
                     # Plot distributions
                     plt.clf()
-                    plt.hist(region_vals,  bins=np.arange(-1, 1.01, 0.01), histtype="step", density=True, color="black")
+                    plt.hist(region_vals,  bins=np.arange(-variable_max[v], variable_max[v]+1e-8, variable_max[v]*1e-2), histtype="step", density=True, color="black")
                     plt.yscale("log")
                     plt.xlabel(f"{var} (Pa)")
                     plt.title(f'{var}: {s}, region = {region}, level_full = {lev}, height = {h}km')
@@ -112,16 +115,3 @@ for var in variables:
                     plt.savefig(plot_name, dpi=100, bbox_inches='tight')
                     print(f"saved as {plot_name}")
 
-                    # Plot log distributions
-                    region_vals = region_vals * 1000.
-                    pos_inds = region_vals > 0.
-                    plt.clf()
-                    plt.hist(np.log10(region_vals[pos_inds]),  bins=np.arange(-5, 5.1, 0.1), histtype="step", color="r", label="W", density=True)
-                    plt.hist(np.log10(-region_vals[~pos_inds]), bins=np.arange(-5, 5.1, 0.1), histtype="step", color="b", label="E", density=True)
-                    plt.legend(loc='upper left')
-                    plt.xlabel(f"log_10 of {var} in mPa")
-                    plt.title(f'{var}: {s}, region = {region}, level_full = {lev}, height = {h}km')
-                    region_ = region.replace(' ','_')
-                    plot_name = f'{plot_dir_log}/{region_}_{var}_{h}km_{s}trunc{trunc}.png'
-                    plt.savefig(plot_name, dpi=100, bbox_inches='tight')
-                    print(f"saved as {plot_name}")
