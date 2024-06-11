@@ -23,7 +23,7 @@ def ud_grade_xr(da, nside_coarse):
         da,
         input_core_dims=[["cell"]],
         output_core_dims=[["out_cell"]],
-        kwargs={"nside_out": nside_coarse},
+        kwargs={"nside_out": nside_coarse, "order_in":"NESTED", "order_out":"NESTED"},
         vectorize=True,
         dask="parallelized",
         dask_gufunc_kwargs={"output_sizes": {"out_cell": npix}, "allow_rechunk": True},
@@ -36,7 +36,7 @@ def save_coarse(v, da_coarse, coarse_res, date_slice, locstr=None):
     Save coarsened variables to preallocated space on disk.
     """
     if locstr is None:
-        locstr = "/work/bm1233/icon_for_ml/spherical/nextgems3/reynolds/"
+        locstr = "/work/bm1233/icon_for_ml/spherical/nextgems3/nofilter/"
     filename_coarse = f"{locstr}res{coarse_res}km_{v}.zarr"
     da_coarse = (
         da_coarse.to_dataset(name=v)
@@ -74,7 +74,7 @@ def main(base_dir: str = "/work/bm1233/icon_for_ml/spherical/nextgems3/"):
     coarse_res = round(
         hp.nside2resol(nside_coarse, arcmin=True) / 60 * (2 * np.pi * 6371) / 360
     )
-
+    
     # NextGems Cycle 3 run:
     # Here we load ds_rho for density, ds_w for w, and ds for all remaining variables.
     # ds_w is chunked differently to optimize computing the vertical interpolation for w.
@@ -119,7 +119,7 @@ def main(base_dir: str = "/work/bm1233/icon_for_ml/spherical/nextgems3/"):
     ds = ds.sel(time=date)
     ds_w = ds_w.sel(time=date)
     ds_rho = ds_rho.sel(time=date)
-
+    
     # Interpolate w to full levels, and save to disk in a temporary location.
     print("Interpolating w to full levels.")
     client.run(trim_memory)
@@ -158,6 +158,7 @@ def main(base_dir: str = "/work/bm1233/icon_for_ml/spherical/nextgems3/"):
     da["uw"] = da["u"] * da["w"]
     da["vw"] = da["v"] * da["w"]
 
+
     # Coarsen
     da_coarse = {}
     for var in ["u", "v", "w", "uw", "vw"]:
@@ -167,11 +168,11 @@ def main(base_dir: str = "/work/bm1233/icon_for_ml/spherical/nextgems3/"):
         tmp = tmp.rename({"out_cell": "cell"})
         da_coarse[var] = tmp
         client.run(trim_memory)
-
+        
     # Subtract and multiply by density, and save.
-    for var, newvar in zip(["u", "v"], ["MFx", "MFy"]):
+    for var, newvar in zip(["u","v"], ["MFx","MFy"]):
         print(f"Computing and saving {newvar}!")
-        tmp = da_coarse[f"{var}w"] - (da_coarse[var] * da_coarse["w"])
+        tmp = da_coarse[f"{var}w"] - ( da_coarse[var] * da_coarse["w"])
         tmp = dask.compute(tmp * da["rho"])[0]
         tmp = tmp.rename({"rho": newvar})
         save_coarse(newvar, tmp, coarse_res, date_slice)
@@ -181,7 +182,6 @@ def main(base_dir: str = "/work/bm1233/icon_for_ml/spherical/nextgems3/"):
 
     # Now, we can delete the temporary interpolated w file from disk.
     rmtree(tmp_loc)
-
 
 if __name__ == "__main__":
     main()
