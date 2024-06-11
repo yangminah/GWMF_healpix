@@ -24,6 +24,7 @@ from compute_fluxes_hp import (
     total_mn
     )
 from compute_uugs_nofilter import ud_grade_xr
+import compute_drag_reynolds as cdr
 
 def tmp_loc(v, date,base_dir="/work/bm1233/icon_for_ml/spherical/nextgems3/"):
     return f"{base_dir}tmp/{v}_{date}.zarr"
@@ -238,13 +239,13 @@ def main():
 
     # Compute drags.
     logger.info("Compute drags.")
-    from compute_drag_reynolds import *
+    
 
     variables = ['MFx', 'MFy']
     truncs = [71 , 214]
     for trunc in truncs:
         for var in variables:
-            calc_drag(task_id, var, trunc, coarse_res, nside_coarse)
+            cdr.calc_drag(task_id, var, trunc, coarse_res, nside_coarse)
 
 if __name__ == "__main__":
     main()
